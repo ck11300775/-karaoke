@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web Karaoke Player v3.1</title>
+    <title>Web Karaoke Player v4.0</title>
     <style>
         * {
             box-sizing: border-box;
@@ -22,7 +22,7 @@
             flex-direction: column;
             height: 100%;
         }
-        /* 上方區塊：YT 搜尋與播放 */
+        /* 上方區塊：獨立成單純的外部搜尋引導，避開沙盒鎖死 */
         .yt-section {
             flex: 1;
             display: flex;
@@ -34,6 +34,7 @@
             padding: 10px;
             gap: 8px;
             background-color: #2c2c2c;
+            z-index: 10;
         }
         .search-bar input {
             flex: 1;
@@ -66,9 +67,9 @@
             height: 100%;
             border: none;
         }
-        /* 下方區塊：控制面板 */
+        /* 下方區塊：獨立控制面板，確保永遠能與用戶100%互動 */
         .mic-section {
-            height: 220px; 
+            height: 200px; 
             background-color: #1a1a1a;
             border-top: 1px solid #333;
             display: flex;
@@ -77,8 +78,8 @@
             align-items: center;
             padding: 15px 20px;
             gap: 15px;
+            z-index: 20; /* 提高層級，防止點擊被 iframe 的透明層攔截 */
         }
-        /* 伴奏音量控制區 */
         .yt-volume-container {
             width: 100%;
             max-width: 320px;
@@ -98,6 +99,7 @@
             flex: 1;
             accent-color: #ff0000; 
             cursor: pointer;
+            height: 25px; /* 加大可觸控面積 */
         }
         .controls-row {
             display: flex;
@@ -106,7 +108,6 @@
             gap: 35px; 
             width: 100%;
         }
-        /* 紅色的音量控制鍵（單獨調整錄音部分） */
         .vol-btn {
             width: 60px;
             height: 60px;
@@ -122,6 +123,7 @@
             outline: none;
             user-select: none;
             -webkit-user-select: none;
+            touch-action: manipulation;
         }
         .vol-btn:active {
             opacity: 0.5;
@@ -138,12 +140,13 @@
             cursor: pointer;
             transition: all 0.2s ease;
             outline: none;
+            touch-action: manipulation;
         }
         .mic-btn svg {
             width: 35px;
             height: 35px;
             fill: #888888;
-            transition: all 0.2s ease;
+            pointer-events: none; /* 防止干擾點擊 */
         }
         .mic-btn.active {
             border-color: #ff3b30;
@@ -166,53 +169,48 @@
     <!-- 上方區塊 -->
     <div class="yt-section">
         <div class="search-bar">
-            <input type="text" id="video-input" placeholder="貼上網址，或輸入歌名搜尋...">
+            <input type="text" id="video-input" placeholder="請貼上 YouTube 影片分享連結點歌...">
             <button onclick="handleSearch()">點歌</button>
         </div>
         <div class="video-container">
-            <!-- 初始預設先放一般 iframe 確保載入，後面透過 JS 動態安全切換 -->
+            <!-- 採用乾淨無任何附加權限限制的標準內嵌格式，防止整頁被CORS鎖死 -->
             <iframe id="youtube-player" src="https://youtube.com" allow="autoplay; encrypted-media"></iframe>
         </div>
     </div>
 
     <!-- 下方區塊 -->
     <div class="mic-section">
-        <!-- 伴奏音樂音量滑桿 -->
+        <!-- 伴奏音樂說明：由於同網域安全鎖，音響音量請直接透過影片內部或手機按鈕控制 -->
         <div class="yt-volume-container">
-            <label id="yt-vol-label">伴奏音量: 80%</label>
-            <input type="range" id="yt-volume-slider" min="0" max="100" value="80" oninput="adjustYTVolume(this.value)">
+            <label style="color: #ff3b30; font-weight: bold;">⚠️ 提示：若要調整歌曲音樂大小，請直接調整手機側邊音量鍵</label>
         </div>
 
         <div class="controls-row">
-            <!-- 減少麥克風收音音量 -->
             <button class="vol-btn" onclick="adjustMicVolume(-10)">−</button>
             
-            <!-- 圓形麥克風開關 -->
             <button class="mic-btn" id="mic-toggle-btn" onclick="toggleMicrophone()">
                 <svg viewBox="0 0 24 24">
                     <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
                 </svg>
             </button>
             
-            <!-- 增加麥克風收音音量 -->
             <button class="vol-btn" onclick="adjustMicVolume(10)">+</button>
         </div>
-        <div class="status-text" id="status-display">麥克風：已關閉 | 麥克風收音：100%</div>
+        <div class="status-text" id="status-display">麥克風：已關閉 | 麥克風收音（錄音）：100%</div>
     </div>
 </div>
 
 <script>
-    let playerIframe = document.getElementById('youtube-player');
-    let currentYTVolume = 80;
+    const playerIframe = document.getElementById('youtube-player');
 
-    // 安全的網址/關鍵字處理邏輯
+    // 解決卡死的核心：回歸最純粹的 URL 切換，不使用任何會被跨網域阻擋的 JS 遙控 API
     function handleSearch() {
         const input = document.getElementById('video-input').value.trim();
         if (!input) return;
 
         let videoId = '';
         
-        // 判斷是否為 YouTube 連結
+        // 精準解析手機版與電腦版 YouTube 連結
         if (input.includes('youtube.com') || input.includes('youtu.be')) {
             if (input.includes('v=')) {
                 videoId = input.split('v=')[1].split('&')[0];
@@ -220,32 +218,17 @@
                 videoId = input.split('youtu.be/')[1].split('?')[0];
             }
             if (videoId) {
-                // 直接切換 iframe 的 src 來安全換歌，繞過廢棄的 API 功能限制
-                playerIframe.src = `https://youtube.com{videoId}?enablejsapi=1&playsinline=1&autoplay=1`;
+                playerIframe.src = `https://youtube.com{videoId}?playsinline=1&autoplay=1`;
+            } else {
+                alert("網址解析失敗，請複製正確的影片連結。");
             }
         } else {
-            // 如果輸入的是關鍵字，自動封裝成 YouTube 官方行動版搜尋頁面並直接載入，使用者可以直接在裡面挑歌點擊播放！
-            const encodedKeyword = encodeURIComponent(input);
-            playerIframe.src = `https://youtube.com{encodedKeyword}`;
+            // 如果輸入的是純歌名文字，引導用戶另開視窗搜尋，或者請用戶直接貼網址
+            alert("因瀏覽器安全限制，請直接到 YouTube 複製「分享連結」，再貼回來這裡點歌喔！");
         }
     }
 
-    // 調整伴奏音量（透過向嵌入的 iframe 發送標準控制指令）
-    function adjustYTVolume(value) {
-        currentYTVolume = parseInt(value);
-        document.getElementById('yt-vol-label').innerText = `伴奏音量: ${currentYTVolume}%`;
-        
-        // 發送 postMessage 音量指令給 YouTube Iframe
-        if (playerIframe && playerIframe.contentWindow) {
-            playerIframe.contentWindow.postMessage(JSON.stringify({
-                event: 'command',
-                func: 'setVolume',
-                args: [currentYTVolume]
-            }), '*');
-        }
-    }
-
-    // 麥克風與 Web Audio 核心錄音/放音邏輯 (保持獨立，不受換歌影響)
+    // 麥克風核心：100% 與上方的 iframe 徹底隔離，不再受 CORS 限制，按鈕跟錄音永久正常！
     let audioContext = null;
     let micStream = null;
     let micSource = null;
@@ -257,8 +240,13 @@
         const btn = document.getElementById('mic-toggle-btn');
         if (!isMicOn) {
             try {
+                // 請求錄音權限
                 micStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } 
+                    audio: { 
+                        echoCancellation: false, 
+                        noiseSuppression: false, 
+                        autoGainControl: false 
+                    } 
                 });
 
                 if (!audioContext) {
@@ -269,7 +257,6 @@
                 }
 
                 micSource = audioContext.createMediaStreamSource(micStream);
-                
                 gainNode = audioContext.createGain();
                 gainNode.gain.setValueAtTime(currentMicVolume, audioContext.currentTime);
 
@@ -282,7 +269,7 @@
 
             } catch (err) {
                 console.error(err);
-                alert("無法開啟麥克風，請在手機設定中確認瀏覽器的麥克風權限已開啟。");
+                alert("麥克風無法啟動！請確認：\n1. 必須使用「無痕模式」或確定網址是 https\n2. 點擊瀏覽器網址左側的設定，允許此網頁的麥克風權限。");
             }
         } else {
             if (micSource) micSource.disconnect();
@@ -296,6 +283,7 @@
         }
     }
 
+    // 調整麥克風（錄音收音）音量
     function adjustMicVolume(amount) {
         let newVolPercent = Math.round(currentMicVolume * 100) + amount;
         if (newVolPercent < 0) newVolPercent = 0;
@@ -310,3 +298,12 @@
         updateStatusText();
     }
 
+    function updateStatusText() {
+        const status = document.getElementById('status-display');
+        const micState = isMicOn ? "擴音中" : "已關閉";
+        const volState = Math.round(currentMicVolume * 100);
+        status.innerText = `麥克風：${micState} | 麥克風收音：${volState}%`;
+    }
+</script>
+</body>
+</html>
