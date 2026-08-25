@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Web Karaoke Player</title>
+    <title>Web Karaoke Player v3.0</title>
     <style>
         * {
             box-sizing: border-box;
@@ -22,6 +22,7 @@
             flex-direction: column;
             height: 100%;
         }
+        /* 上方區塊：YT 搜尋與播放 */
         .yt-section {
             flex: 1;
             display: flex;
@@ -64,15 +65,65 @@
             width: 100%;
             height: 100%;
         }
+        /* 下方區塊：控制面板 */
         .mic-section {
-            height: 160px;
+            height: 220px; /* 稍微加高以容納伴奏滑桿 */
             background-color: #1a1a1a;
             border-top: 1px solid #333;
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
+            padding: 15px 20px;
+            gap: 15px;
+        }
+        /* 伴奏音量控制區 */
+        .yt-volume-container {
+            width: 100%;
+            max-width: 320px;
+            display: flex;
+            align-items: center;
             gap: 10px;
+            background-color: #262626;
+            padding: 8px 15px;
+            border-radius: 15px;
+        }
+        .yt-volume-container label {
+            font-size: 13px;
+            color: #aaa;
+            white-space: nowrap;
+        }
+        .yt-volume-container input[type="range"] {
+            flex: 1;
+            accent-color: #ff0000; /* YouTube 紅色滑桿 */
+            cursor: pointer;
+        }
+        .controls-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 35px; 
+            width: 100%;
+        }
+        /* 紅色的音量控制鍵（只影響麥克風） */
+        .vol-btn {
+            width: 60px;
+            height: 60px;
+            border: none;
+            background: none;
+            color: #ff3b30; 
+            font-size: 36px;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            outline: none;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        .vol-btn:active {
+            opacity: 0.5;
         }
         .mic-btn {
             width: 80px;
@@ -102,113 +153,173 @@
             fill: #ff3b30;
         }
         .status-text {
-            font-size: 12px;
-            color: #aaa;
+            font-size: 13px;
+            color: #ff3b30; 
+            font-weight: 500;
         }
     </style>
 </head>
 <body>
 
 <div class="container">
+    <!-- 上方區塊 -->
     <div class="yt-section">
         <div class="search-bar">
-            <input type="text" id="video-input" placeholder="請貼上 YouTube 影片網址或輸入 ID...">
-            <button onclick="loadVideo()">點歌</button>
+            <input type="text" id="video-input" placeholder="輸入歌曲關鍵字或貼上 YT 網址...">
+            <button onclick="handleSearch()">點歌</button>
         </div>
         <div class="video-container">
             <div id="youtube-player"></div>
         </div>
     </div>
 
+    <!-- 下方區塊 -->
     <div class="mic-section">
-        <button class="mic-btn" id="mic-toggle-btn" onclick="toggleMicrophone()">
-            <svg viewBox="0 0 24 24">
-                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
-            </svg>
-        </button>
-        <div class="status-text" id="status-display">麥克風已關閉</div>
+        <!-- 新增：單獨調整 YouTube 伴奏的滑桿 -->
+        <div class="yt-volume-container">
+            <label id="yt-vol-label">伴奏音量: 80%</label>
+            <input type="range" id="yt-volume-slider" min="0" max="100" value="80" oninput="adjustYTVolume(this.value)">
+        </div>
+
+        <div class="controls-row">
+            <!-- 減少麥克風收音音量 -->
+            <button class="vol-btn" onclick="adjustMicVolume(-10)">−</button>
+            
+            <!-- 麥克風開關 -->
+            <button class="mic-btn" id="mic-toggle-btn" onclick="toggleMicrophone()">
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
+                </svg>
+            </button>
+            
+            <!-- 增加麥克風收音音量 -->
+            <button class="vol-btn" onclick="adjustMicVolume(10)">+</button>
+        </div>
+        <div class="status-text" id="status-display">麥克風：已關閉 | 麥克風收音：100%</div>
     </div>
 </div>
 
 <script src="https://youtube.com"></script>
 <script>
     let player;
+    let currentYTVolume = 80; // YouTube 預設音量 80%
+
     function onYouTubeIframeAPIReady() {
         player = new YT.Player('youtube-player', {
-            videoId: 'dQw4w9WgXcQ',
+            videoId: 'dQw4w9WgXcQ', 
             playerVars: {
                 'playsinline': 1,
-                'controls': 1
+                'controls': 1,
+                'rel': 0
+            },
+            events: {
+                'onReady': onPlayerReady
             }
         });
     }
 
-    function loadVideo() {
+    function onPlayerReady(event) {
+        // 播放器載入完成時，自動設定初始伴奏音量
+        event.target.setVolume(currentYTVolume);
+    }
+
+    function handleSearch() {
         const input = document.getElementById('video-input').value.trim();
-        let videoId = input;
-        
-        if (input.includes('v=')) {
-            videoId = input.split('v=')[1].split('&')[0];
-        } else if (input.includes('youtu.be/')) {
-            videoId = input.split('youtu.be/')[1].split('?')[0];
-        }
-        
-        if (videoId && player && player.loadVideoById) {
-            player.loadVideoById(videoId);
+        if (!input) return;
+
+        let videoId = '';
+        if (input.includes('youtube.com') || input.includes('youtu.be')) {
+            if (input.includes('v=')) {
+                videoId = input.split('v=').split('&');
+            } else if (input.includes('youtu.be/')) {
+                videoId = input.split('youtu.be/').split('?');
+            }
+            if (videoId && player && player.loadVideoById) {
+                player.loadVideoById(videoId);
+            }
         } else {
-            alert('請輸入有效的 YouTube 影片網址或 ID');
+            if (player && player.loadPlaylist) {
+                player.loadPlaylist({
+                    list: input,
+                    listType: 'search',
+                    index: 0
+                });
+            }
         }
     }
 
+    // 1. 調整 YouTube 伴奏音量邏輯
+    function adjustYTVolume(value) {
+        currentYTVolume = parseInt(value);
+        document.getElementById('yt-vol-label').innerText = `伴奏音量: ${currentYTVolume}%`;
+        
+        // 呼叫 YouTube API 改變影片音量 (不影響麥克風)
+        if (player && typeof player.setVolume === 'function') {
+            player.setVolume(currentYTVolume);
+        }
+    }
+
+    // 2. 麥克風與 Web Audio 控制邏輯
     let audioContext = null;
     let micStream = null;
     let micSource = null;
+    let gainNode = null; 
     let isMicOn = false;
+    let currentMicVolume = 1.0; // 預設 100%
 
     async function toggleMicrophone() {
         const btn = document.getElementById('mic-toggle-btn');
-        const status = document.getElementById('status-display');
-
         if (!isMicOn) {
             try {
                 micStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: {
-                        echoCancellation: false,
-                        noiseSuppression: false,
-                        autoGainControl: false
-                    } 
+                    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } 
                 });
 
                 if (!audioContext) {
                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 }
-                
                 if (audioContext.state === 'suspended') {
                     await audioContext.resume();
                 }
 
                 micSource = audioContext.createMediaStreamSource(micStream);
-                micSource.connect(audioContext.destination);
+                
+                gainNode = audioContext.createGain();
+                gainNode.gain.setValueAtTime(currentMicVolume, audioContext.currentTime);
+
+                micSource.connect(gainNode);
+                gainNode.connect(audioContext.destination);
 
                 isMicOn = true;
                 btn.classList.add('active');
-                status.innerText = "麥克風擴音中";
+                updateStatusText();
 
             } catch (err) {
-                console.error("無法存取麥克風:", err);
-                alert("啟動麥克風失敗，請確保已授權麥克風權限。");
+                console.error(err);
+                alert("無法開啟麥克風，請確認權限。");
             }
         } else {
             if (micSource) micSource.disconnect();
+            if (gainNode) gainNode.disconnect();
             if (micStream) {
                 micStream.getTracks().forEach(track => track.stop());
             }
-            
             isMicOn = false;
             btn.classList.remove('active');
-            status.innerText = "麥克風已關閉";
+            updateStatusText();
         }
     }
-</script>
-</body>
-</html>
+
+    // 單獨調整麥克風錄音音量
+    function adjustMicVolume(amount) {
+        let newVolPercent = Math.round(currentMicVolume * 100) + amount;
+        
+        if (newVolPercent < 0) newVolPercent = 0;
+        if (newVolPercent > 200) newVolPercent = 200;
+        
+        currentMicVolume = newVolPercent / 100;
+
+        if (gainNode && audioContext) {
+            gainNode.gain.setValueAtTime(currentMicVolume, audioContext.currentTime);
+        }
+        
