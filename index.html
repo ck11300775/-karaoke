@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Web Karaoke Player</title>
     <style>
-        /* 依據您的手繪草圖設計的 CSS 佈局 */
         * {
             box-sizing: border-box;
             margin: 0;
@@ -23,7 +22,6 @@
             flex-direction: column;
             height: 100%;
         }
-        /* 上方區塊：YouTube 播放器與搜尋 */
         .yt-section {
             flex: 1;
             display: flex;
@@ -66,7 +64,6 @@
             width: 100%;
             height: 100%;
         }
-        /* 下方區塊：草圖中的麥克風控制面板 */
         .mic-section {
             height: 160px;
             background-color: #1a1a1a;
@@ -96,7 +93,6 @@
             fill: #888888;
             transition: all 0.2s ease;
         }
-        /* 麥克風啟動狀態的樣式 */
         .mic-btn.active {
             border-color: #ff3b30;
             background-color: rgba(255, 59, 48, 0.2);
@@ -114,7 +110,6 @@
 <body>
 
 <div class="container">
-    <!-- 上方區塊：YT 搜尋與播放 (對應草圖中的 yt) -->
     <div class="yt-section">
         <div class="search-bar">
             <input type="text" id="video-input" placeholder="請貼上 YouTube 影片網址或輸入 ID...">
@@ -125,10 +120,8 @@
         </div>
     </div>
 
-    <!-- 下方區塊：麥克風開關 (對應草圖底部的圓形麥克風) -->
     <div class="mic-section">
         <button class="mic-btn" id="mic-toggle-btn" onclick="toggleMicrophone()">
-            <!-- 麥克風 SVG 圖示 -->
             <svg viewBox="0 0 24 24">
                 <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
             </svg>
@@ -137,14 +130,12 @@
     </div>
 </div>
 
-<!-- 載入 YouTube 官方 IFrame API -->
 <script src="https://youtube.com"></script>
 <script>
-    // 1. YouTube 播放器初始化
     let player;
     function onYouTubeIframeAPIReady() {
         player = new YT.Player('youtube-player', {
-            videoId: 'dQw4w9WgXcQ', // 預設測試影片 ID
+            videoId: 'dQw4w9WgXcQ',
             playerVars: {
                 'playsinline': 1,
                 'controls': 1
@@ -156,7 +147,6 @@
         const input = document.getElementById('video-input').value.trim();
         let videoId = input;
         
-        // 簡單解析可能的 YouTube 網址格式
         if (input.includes('v=')) {
             videoId = input.split('v=')[1].split('&')[0];
         } else if (input.includes('youtu.be/')) {
@@ -170,7 +160,6 @@
         }
     }
 
-    // 2. Web Audio API 麥克風導向輸出核心邏輯
     let audioContext = null;
     let micStream = null;
     let micSource = null;
@@ -182,30 +171,25 @@
 
         if (!isMicOn) {
             try {
-                // 請求使用者麥克風權限
                 micStream = await navigator.mediaDevices.getUserMedia({ 
                     audio: {
-                        echoCancellation: false, // 關閉瀏覽器自帶的通話降噪，保留原音
+                        echoCancellation: false,
                         noiseSuppression: false,
                         autoGainControl: false
                     } 
                 });
 
-                // 初始化音訊上下文
                 if (!audioContext) {
                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 }
                 
-                // 確保 Context 沒有被瀏覽器自動掛起
                 if (audioContext.state === 'suspended') {
                     await audioContext.resume();
                 }
 
-                // 建立麥克風節點並直接連線到輸出（喇叭/藍牙）
                 micSource = audioContext.createMediaStreamSource(micStream);
                 micSource.connect(audioContext.destination);
 
-                // 更新 UI 狀態
                 isMicOn = true;
                 btn.classList.add('active');
                 status.innerText = "麥克風擴音中";
@@ -215,7 +199,6 @@
                 alert("啟動麥克風失敗，請確保已授權麥克風權限。");
             }
         } else {
-            // 關閉麥克風串流
             if (micSource) micSource.disconnect();
             if (micStream) {
                 micStream.getTracks().forEach(track => track.stop());
