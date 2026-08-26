@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>純麥克風擴音器</title>
+    <title>網頁擴音器</title>
     <style>
         * {
             box-sizing: border-box;
@@ -129,9 +129,9 @@
                 // 1. 請求麥克風權限
                 micStream = await navigator.mediaDevices.getUserMedia({ 
                     audio: { 
-                        echoCancellation: false, 
-                        noiseSuppression: false, 
-                        autoGainControl: false 
+                        echoCancellation: true, 
+                        noiseSuppression: true, 
+                        autoGainControl: true
                     } 
                 });
 
