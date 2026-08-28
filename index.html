@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>網頁擴音器</title>
+    <title>網頁擴音器 v4.5</title>
     <style>
         * {
             box-sizing: border-box;
@@ -37,7 +37,6 @@
             gap: 35px; 
             width: 100%;
         }
-        /* 紅色的麥克風收音音量控制鍵 */
         .vol-btn {
             width: 60px;
             height: 60px;
@@ -53,10 +52,12 @@
             outline: none;
             user-select: none;
             -webkit-user-select: none;
+            touch-action: manipulation;
         }
         .vol-btn:active {
             opacity: 0.5;
         }
+        /* 麥克風按鈕外圈：新增發光與縮放的平滑動畫過渡 */
         .mic-btn {
             width: 100px;
             height: 100px;
@@ -67,19 +68,22 @@
             justify-content: center;
             align-items: center;
             cursor: pointer;
-            transition: all 0.2s ease;
             outline: none;
+            touch-action: manipulation;
+            transition: border-color 0.2s, background-color 0.2s, box-shadow 0.05s ease, transform 0.05s ease;
         }
         .mic-btn svg {
             width: 45px;
             height: 45px;
             fill: #888888;
             pointer-events: none;
+            transition: fill 0.2s;
         }
+        /* 啟動時的基礎紅色外觀 */
         .mic-btn.active {
             border-color: #ff3b30;
             background-color: rgba(255, 59, 48, 0.2);
-            box-shadow: 0 0 20px rgba(255, 59, 48, 0.4);
+            box-shadow: 0 0 15px rgba(255, 59, 48, 0.3);
         }
         .mic-btn.active svg {
             fill: #ff3b30;
@@ -97,17 +101,14 @@
 
 <div class="mic-section">
     <div class="controls-row">
-        <!-- 減少麥克風收音音量 -->
         <button class="vol-btn" onclick="adjustMicVolume(-10)">−</button>
         
-        <!-- 圓形麥克風開關 -->
         <button class="mic-btn" id="mic-toggle-btn" onclick="toggleMicrophone()">
             <svg viewBox="0 0 24 24">
                 <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
             </svg>
         </button>
         
-        <!-- 增加麥克風收音音量 -->
         <button class="vol-btn" onclick="adjustMicVolume(10)">+</button>
     </div>
     
@@ -119,23 +120,19 @@
     let micStream = null;
     let micSource = null;
     let gainNode = null; 
+    let analyserNode = null; // 新增：即時音訊分析器節點
+    let animationFrameId = null; // 用來取消動畫捕捉
     let isMicOn = false;
-    let currentMicVolume = 1.0; // 預設 100%
+    let currentMicVolume = 1.0;
 
     async function toggleMicrophone() {
         const btn = document.getElementById('mic-toggle-btn');
         if (!isMicOn) {
             try {
-                // 1. 請求麥克風權限
                 micStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { 
-                        echoCancellation: true, 
-                        noiseSuppression: true, 
-                        autoGainControl: true
-                    } 
+                    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } 
                 });
 
-                // 2. 初始化音訊上下文（強制指定藍牙最相容的 48000Hz 採樣率）
                 if (!audioContext) {
                     audioContext = new (window.AudioContext || window.webkitAudioContext)({
                         sampleRate: 48000
@@ -145,27 +142,41 @@
                     await audioContext.resume();
                 }
 
-                // 3. 建立連線線路
                 micSource = audioContext.createMediaStreamSource(micStream);
                 gainNode = audioContext.createGain();
                 gainNode.gain.setValueAtTime(currentMicVolume, audioContext.currentTime);
 
-                // 麥克風 -> 音量控制 -> 喇叭輸出
+                // === 新增：配置音訊分析器 ===
+                analyserNode = audioContext.createAnalyser();
+                analyserNode.fftSize = 64; // 數值越小，運算速度越快，適合即時反應
+
+                // 連線線路：麥克風 -> 擴音控制 -> 分析器 -> 喇叭輸出
                 micSource.connect(gainNode);
-                gainNode.connect(audioContext.destination);
+                gainNode.connect(analyserNode);
+                analyserNode.connect(audioContext.destination);
 
                 isMicOn = true;
                 btn.classList.add('active');
                 updateStatusText();
+
+                // 啟動動態跳動效果
+                updateVolumeAnimation();
 
             } catch (err) {
                 console.error(err);
                 alert("無法開啟麥克風！請確認：\n1. 網址開頭必須是 https\n2. 必須開啟瀏覽器的麥克風授權。");
             }
         } else {
-            // 關閉並切斷線路
+            // 停止動畫
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+            
+            // 恢復按鈕預設樣式
+            btn.style.boxShadow = '';
+            btn.style.transform = '';
+
             if (micSource) micSource.disconnect();
             if (gainNode) gainNode.disconnect();
+            if (analyserNode) analyserNode.disconnect();
             if (micStream) {
                 micStream.getTracks().forEach(track => track.stop());
             }
@@ -175,11 +186,51 @@
         }
     }
 
-    // 調整麥克風音量
+    // === 新增：每秒捕捉 60 次音量大小，動態更新 CSS 外觀 ===
+    function updateVolumeAnimation() {
+        if (!isMicOn || !analyserNode) return;
+
+        const bufferLength = analyserNode.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        
+        // 抓取當下的時間網域音訊數據（波形）
+        analyserNode.getByteTimeDomainData(dataArray);
+
+        // 計算音訊的 RMS (均方根值) 來代表即時音量大小
+        let sumSqr = 0;
+        for (let i = 0; i < bufferLength; i++) {
+            let normalized = (dataArray[i] - 128) / 128; // 轉換為 -1 到 1 的區間
+            sumSqr += normalized * normalized;
+        }
+        let rms = Math.sqrt(sumSqr / bufferLength);
+
+        // 將音量大小等比例放大成視覺參數 (rms 範圍一般在 0 到 0.5 之間)
+        let volumeLevel = Math.min(rms * 50, 15); // 控制最大發光強度與縮放幅度
+
+        const btn = document.getElementById('mic-toggle-btn');
+        if (btn) {
+            if (volumeLevel > 0.5) {
+                // 有聲音時：音量越大，紅色發光圈範圍越大、按鈕微幅充氣變大
+                let shadowRadius = 15 + (volumeLevel * 4); // 基礎 15px，隨音量變大
+                let scaleSize = 1.0 + (volumeLevel * 0.015); // 隨音量變大 1.01 ~ 1.1 倍
+                
+                btn.style.boxShadow = `0 0 ${shadowRadius}px rgba(255, 59, 48, 0.8)`;
+                btn.style.transform = `scale(${scaleSize})`;
+            } else {
+                // 完全沒聲音時恢復靜態紅色發光
+                btn.style.boxShadow = '0 0 15px rgba(255, 59, 48, 0.3)';
+                btn.style.transform = 'scale(1)';
+            }
+        }
+
+        // 持續循環捕捉
+        animationFrameId = requestAnimationFrame(updateVolumeAnimation);
+    }
+
     function adjustMicVolume(amount) {
         let newVolPercent = Math.round(currentMicVolume * 100) + amount;
         if (newVolPercent < 0) newVolPercent = 0;
-        if (newVolPercent > 200) newVolPercent = 200; // 最大可放大到 200%
+        if (newVolPercent > 200) newVolPercent = 200;
         
         currentMicVolume = newVolPercent / 100;
 
