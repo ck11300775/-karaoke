@@ -57,14 +57,21 @@
         .vol-btn:active {
             opacity: 0.5;
         }
+        /* 🛠️ CSS 核心修正：強制容器保持 1:1 正方形，絕對不允許被系統拉高 */
         .visualizer-container {
             position: relative;
             width: 240px;
             height: 240px;
+            min-width: 240px;
+            min-height: 240px;
+            max-width: 240px;
+            max-height: 240px;
             display: flex;
             justify-content: center;
             align-items: center;
+            aspect-ratio: 1 / 1; 
         }
+        /* 🛠️ 畫布修正：強制以不失真的正圓比例填滿，禁止拉伸成橢圓 */
         #spectrum-canvas {
             position: absolute;
             top: 0;
@@ -73,6 +80,8 @@
             height: 100%;
             z-index: 1;
             pointer-events: none;
+            object-fit: contain; 
+            aspect-ratio: 1 / 1;
         }
         .mic-btn {
             width: 100px;
@@ -207,7 +216,6 @@
         }
     }
 
-    // === 徹底修復：採用純圓公式繪製正圓同心圓 ===
     function drawConcentricCircles() {
         if (!isMicOn || !analyserNode) return;
 
@@ -223,36 +231,35 @@
         }
         let rms = Math.sqrt(sumSqr / bufferLength);
 
-        // 調整放大振幅，讓圈圈外擴更靈敏明顯
-        let volumeMultiplier = Math.min(rms * 150, 55); 
+        let volumeMultiplier = Math.min(rms * 140, 50); 
 
         circleSettings.targetRadius1 = circleSettings.baseRadius + volumeMultiplier;
         circleSettings.targetRadius2 = circleSettings.baseRadius + (volumeMultiplier * 1.7);
 
-        // 動態過渡動畫
         circleSettings.currentRadius1 += (circleSettings.targetRadius1 - circleSettings.currentRadius1) * 0.3;
         circleSettings.currentRadius2 += (circleSettings.targetRadius2 - circleSettings.currentRadius2) * 0.2;
 
         canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
 
+        // 鎖定 1:1 正方形畫布的中心點座標，保證畫出來的圓絕對對稱
         const centerX = 120; 
         const centerY = 120;
 
-        // 內圈正圓
+        // 內圈正圓（強制不允許橢圓化）
         if (circleSettings.currentRadius1 > circleSettings.baseRadius + 0.5) {
             canvasCtx.beginPath();
             canvasCtx.arc(centerX, centerY, circleSettings.currentRadius1, 0, Math.PI * 2);
-            let alpha1 = Math.max(0.1, 0.8 - (circleSettings.currentRadius1 - circleSettings.baseRadius) / 55);
+            let alpha1 = Math.max(0.1, 0.8 - (circleSettings.currentRadius1 - circleSettings.baseRadius) / 50);
             canvasCtx.strokeStyle = `rgba(255, 59, 48, ${alpha1})`;
             canvasCtx.lineWidth = 3;
             canvasCtx.stroke();
         }
 
-        // 外圈正圓
+        // 外圈正圓（強制不允許橢圓化）
         if (circleSettings.currentRadius2 > circleSettings.baseRadius + 1) {
             canvasCtx.beginPath();
             canvasCtx.arc(centerX, centerY, circleSettings.currentRadius2, 0, Math.PI * 2);
-            let alpha2 = Math.max(0.02, 0.4 - (circleSettings.currentRadius2 - circleSettings.baseRadius) / 95);
+            let alpha2 = Math.max(0.02, 0.4 - (circleSettings.currentRadius2 - circleSettings.baseRadius) / 90);
             canvasCtx.strokeStyle = `rgba(255, 59, 48, ${alpha2})`;
             canvasCtx.lineWidth = 1.5;
             canvasCtx.stroke();
@@ -275,7 +282,6 @@
         updateStatusText();
     }
 
-    // 狀態字串維持您的經典黑底紅字配色
     function updateStatusText() {
         const status = document.getElementById('status-display');
         const micState = isMicOn ? "擴音中" : "已關閉";
