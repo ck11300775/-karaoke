@@ -27,7 +27,7 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            gap: 40px; /* 加大按鈕與下方文字的間距，讓排版更和諧 */
+            gap: 40px; 
             padding: 20px;
         }
         .controls-row {
@@ -59,8 +59,8 @@
         }
         .visualizer-container {
             position: relative;
-            width: 180px;
-            height: 180px;
+            width: 240px;
+            height: 240px;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -114,16 +114,11 @@
 <body>
 
 <div class="mic-section">
-    <!-- 頂部的大標題與安全濾鏡面板已被徹底拔除，維持極簡 -->
-
     <div class="controls-row">
-        <!-- 減少麥克風收音音量 -->
         <button class="vol-btn" onclick="adjustMicVolume(-10)">−</button>
         
         <div class="visualizer-container">
-            <!-- 圓形音訊頻譜畫布 -->
-            <canvas id="spectrum-canvas" width="180" height="180"></canvas>
-            <!-- 圓形麥克風開關 -->
+            <canvas id="spectrum-canvas" width="240" height="240"></canvas>
             <button class="mic-btn" id="mic-toggle-btn" onclick="toggleMicrophone()">
                 <svg viewBox="0 0 24 24">
                     <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
@@ -131,11 +126,9 @@
             </button>
         </div>
         
-        <!-- 增加麥克風收音音量 -->
         <button class="vol-btn" onclick="adjustMicVolume(10)">+</button>
     </div>
     
-    <!-- 狀態與音量數值顯示 -->
     <div class="status-text" id="status-display">麥克風：已關閉<br>麥克風收音：100%</div>
 </div>
 
@@ -149,6 +142,14 @@
     let isMicOn = false;
     let currentMicVolume = 1.0;
 
+    let circleSettings = {
+        baseRadius: 53,       
+        targetRadius1: 53,    
+        targetRadius2: 53,    
+        currentRadius1: 53,   
+        currentRadius2: 53    
+    };
+
     const canvas = document.getElementById('spectrum-canvas');
     const canvasCtx = canvas.getContext('2d');
 
@@ -156,13 +157,8 @@
         const btn = document.getElementById('mic-toggle-btn');
         if (!isMicOn) {
             try {
-                // 雖然畫面拔除了提示，但底層依舊保留最強大的防回音與去雜音技術
                 micStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { 
-                        echoCancellation: true, 
-                        noiseSuppression: true, 
-                        autoGainControl: true   
-                    } 
+                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } 
                 });
 
                 if (!audioContext) {
@@ -189,8 +185,7 @@
                 btn.classList.add('active');
                 updateStatusText();
 
-                // 啟動圓形頻譜動畫
-                drawCircularSpectrum();
+                drawConcentricCircles();
 
             } catch (err) {
                 console.error(err);
@@ -212,53 +207,58 @@
         }
     }
 
-    function drawCircularSpectrum() {
+    // === 徹底修復：採用純圓公式繪製正圓同心圓 ===
+    function drawConcentricCircles() {
         if (!isMicOn || !analyserNode) return;
 
         const bufferLength = analyserNode.frequencyBinCount;
         const dataArray = new Uint8Array(bufferLength);
-        analyserNode.getByteFrequencyData(dataArray);
+        
+        analyserNode.getByteTimeDomainData(dataArray);
+
+        let sumSqr = 0;
+        for (let i = 0; i < bufferLength; i++) {
+            let normalized = (dataArray[i] - 128) / 128;
+            sumSqr += normalized * normalized;
+        }
+        let rms = Math.sqrt(sumSqr / bufferLength);
+
+        // 調整放大振幅，讓圈圈外擴更靈敏明顯
+        let volumeMultiplier = Math.min(rms * 150, 55); 
+
+        circleSettings.targetRadius1 = circleSettings.baseRadius + volumeMultiplier;
+        circleSettings.targetRadius2 = circleSettings.baseRadius + (volumeMultiplier * 1.7);
+
+        // 動態過渡動畫
+        circleSettings.currentRadius1 += (circleSettings.targetRadius1 - circleSettings.currentRadius1) * 0.3;
+        circleSettings.currentRadius2 += (circleSettings.targetRadius2 - circleSettings.currentRadius2) * 0.2;
 
         canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
 
-        const centerX = 90;
-        const centerY = 90;
-        const baseRadius = 53; 
+        const centerX = 120; 
+        const centerY = 120;
 
-        canvasCtx.beginPath();
-        canvasCtx.strokeStyle = '#ff3b30'; 
-        canvasCtx.lineWidth = 3;         
-        canvasCtx.lineJoin = 'round';
-
-        let hasStarted = false;
-
-        for (let i = 0; i < bufferLength; i++) {
-            const value = dataArray[i];
-            const percent = value / 255;
-            const spikeHeight = percent * 22; 
-
-            const angle = (i / bufferLength) * Math.PI * 2;
-            const currentRadius = baseRadius + spikeHeight;
-
-            const x = centerX + Math.cos(angle) * currentRadius;
-            const y = centerY + Math.sin(angle) * currentRadius;
-
-            if (isNaN(x) || isNaN(y)) continue;
-
-            if (!hasStarted) {
-                canvasCtx.moveTo(x, y);
-                hasStarted = true;
-            } else {
-                canvasCtx.lineTo(x, y);
-            }
-        }
-        
-        if (hasStarted) {
-            canvasCtx.closePath();
+        // 內圈正圓
+        if (circleSettings.currentRadius1 > circleSettings.baseRadius + 0.5) {
+            canvasCtx.beginPath();
+            canvasCtx.arc(centerX, centerY, circleSettings.currentRadius1, 0, Math.PI * 2);
+            let alpha1 = Math.max(0.1, 0.8 - (circleSettings.currentRadius1 - circleSettings.baseRadius) / 55);
+            canvasCtx.strokeStyle = `rgba(255, 59, 48, ${alpha1})`;
+            canvasCtx.lineWidth = 3;
             canvasCtx.stroke();
         }
 
-        animationFrameId = requestAnimationFrame(drawCircularSpectrum);
+        // 外圈正圓
+        if (circleSettings.currentRadius2 > circleSettings.baseRadius + 1) {
+            canvasCtx.beginPath();
+            canvasCtx.arc(centerX, centerY, circleSettings.currentRadius2, 0, Math.PI * 2);
+            let alpha2 = Math.max(0.02, 0.4 - (circleSettings.currentRadius2 - circleSettings.baseRadius) / 95);
+            canvasCtx.strokeStyle = `rgba(255, 59, 48, ${alpha2})`;
+            canvasCtx.lineWidth = 1.5;
+            canvasCtx.stroke();
+        }
+
+        animationFrameId = requestAnimationFrame(drawConcentricCircles);
     }
 
     function adjustMicVolume(amount) {
