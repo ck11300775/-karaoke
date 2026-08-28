@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>網頁擴音器 v4.5</title>
+    <!-- 改名：網頁標題 -->
+    <title>網頁擴音器</title>
     <style>
         * {
             box-sizing: border-box;
@@ -27,8 +28,15 @@
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            gap: 30px;
+            gap: 25px;
             padding: 20px;
+        }
+        /* 大標題 */
+        h1 {
+            font-size: 24px;
+            color: #ff3b30;
+            margin-bottom: 5px;
+            font-weight: 600;
         }
         .controls-row {
             display: flex;
@@ -36,6 +44,7 @@
             justify-content: center;
             gap: 35px; 
             width: 100%;
+            position: relative;
         }
         .vol-btn {
             width: 60px;
@@ -53,24 +62,45 @@
             user-select: none;
             -webkit-user-select: none;
             touch-action: manipulation;
+            z-index: 10;
         }
         .vol-btn:active {
             opacity: 0.5;
         }
-        /* 麥克風按鈕外圈：新增發光與縮放的平滑動畫過渡 */
+        /* 視覺化容器：確保畫布與圓形按鈕疊在一起 */
+        .visualizer-container {
+            position: relative;
+            width: 180px;
+            height: 180px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        /* 頻譜畫布：負責繪製圖中像鋸齒波浪的動態線條 */
+        #spectrum-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+            pointer-events: none;
+        }
+        /* 圓形麥克風按鈕 */
         .mic-btn {
             width: 100px;
             height: 100px;
             border-radius: 50%;
             border: 3px solid #888888;
-            background-color: rgba(255, 255, 255, 0.05);
+            background-color: #1a1a1a; /* 像圖中的黑底圓形 */
             display: flex;
             justify-content: center;
             align-items: center;
             cursor: pointer;
             outline: none;
             touch-action: manipulation;
-            transition: border-color 0.2s, background-color 0.2s, box-shadow 0.05s ease, transform 0.05s ease;
+            z-index: 5;
+            transition: border-color 0.2s, background-color 0.2s;
         }
         .mic-btn svg {
             width: 45px;
@@ -79,11 +109,10 @@
             pointer-events: none;
             transition: fill 0.2s;
         }
-        /* 啟動時的基礎紅色外觀 */
+        /* 啟動時的外觀 */
         .mic-btn.active {
             border-color: #ff3b30;
-            background-color: rgba(255, 59, 48, 0.2);
-            box-shadow: 0 0 15px rgba(255, 59, 48, 0.3);
+            background-color: #2c0e0c;
         }
         .mic-btn.active svg {
             fill: #ff3b30;
@@ -95,19 +124,44 @@
             text-align: center;
             line-height: 1.6;
         }
+        /* 濾鏡狀態面板 */
+        .filter-panel {
+            background-color: #1a1a1a;
+            padding: 8px 15px;
+            border-radius: 10px;
+            font-size: 12px;
+            color: #888;
+            border: 1px solid #333;
+        }
+        .filter-panel span {
+            color: #00e676; /* 綠色打勾標示 */
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
 
 <div class="mic-section">
+    <!-- 改名：網頁大標題 -->
+    <h1>網頁擴音器</h1>
+
+    <!-- 濾鏡功能啟用提示面板 -->
+    <div class="filter-panel">
+        🛡️ 安全濾鏡：<span>✓ 已開啟防回音</span> | <span>✓ 已開啟去雜音</span>
+    </div>
+
     <div class="controls-row">
         <button class="vol-btn" onclick="adjustMicVolume(-10)">−</button>
         
-        <button class="mic-btn" id="mic-toggle-btn" onclick="toggleMicrophone()">
-            <svg viewBox="0 0 24 24">
-                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
-            </svg>
-        </button>
+        <!-- 包含頻譜的按鈕區塊 -->
+        <div class="visualizer-container">
+            <canvas id="spectrum-canvas" width="180" height="180"></canvas>
+            <button class="mic-btn" id="mic-toggle-btn" onclick="toggleMicrophone()">
+                <svg viewBox="0 0 24 24">
+                    <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c0 3-2.54 5.1-5.3 5.1S6.7 14 6.7 11H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c3.28-.48 6-3.3 6-6.72h-1.7z"/>
+                </svg>
+            </button>
+        </div>
         
         <button class="vol-btn" onclick="adjustMicVolume(10)">+</button>
     </div>
@@ -120,17 +174,25 @@
     let micStream = null;
     let micSource = null;
     let gainNode = null; 
-    let analyserNode = null; // 新增：即時音訊分析器節點
-    let animationFrameId = null; // 用來取消動畫捕捉
+    let analyserNode = null; 
+    let animationFrameId = null; 
     let isMicOn = false;
     let currentMicVolume = 1.0;
+
+    const canvas = document.getElementById('spectrum-canvas');
+    const canvasCtx = canvas.getContext('2d');
 
     async function toggleMicrophone() {
         const btn = document.getElementById('mic-toggle-btn');
         if (!isMicOn) {
             try {
+                // === 關鍵技術：開啟防回音（Echo）與去雜音（Noise）===
                 micStream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } 
+                    audio: { 
+                        echoCancellation: true, // 核心：強制啟用硬體級防回音抑制
+                        noiseSuppression: true, // 核心：強制啟用智慧去雜音與背景噪聲消除
+                        autoGainControl: true   // 自動增益控制，穩定說話音量
+                    } 
                 });
 
                 if (!audioContext) {
@@ -146,11 +208,10 @@
                 gainNode = audioContext.createGain();
                 gainNode.gain.setValueAtTime(currentMicVolume, audioContext.currentTime);
 
-                // === 新增：配置音訊分析器 ===
+                // 配置頻譜分析器
                 analyserNode = audioContext.createAnalyser();
-                analyserNode.fftSize = 64; // 數值越小，運算速度越快，適合即時反應
+                analyserNode.fftSize = 128; // 高低音採樣點數量，控制鋸齒密集度
 
-                // 連線線路：麥克風 -> 擴音控制 -> 分析器 -> 喇叭輸出
                 micSource.connect(gainNode);
                 gainNode.connect(analyserNode);
                 analyserNode.connect(audioContext.destination);
@@ -159,20 +220,17 @@
                 btn.classList.add('active');
                 updateStatusText();
 
-                // 啟動動態跳動效果
-                updateVolumeAnimation();
+                // 啟動圓形鋸齒頻譜繪製
+                drawCircularSpectrum();
 
             } catch (err) {
                 console.error(err);
                 alert("無法開啟麥克風！請確認：\n1. 網址開頭必須是 https\n2. 必須開啟瀏覽器的麥克風授權。");
             }
         } else {
-            // 停止動畫
             if (animationFrameId) cancelAnimationFrame(animationFrameId);
-            
-            // 恢復按鈕預設樣式
-            btn.style.boxShadow = '';
-            btn.style.transform = '';
+            // 清除畫布
+            canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
 
             if (micSource) micSource.disconnect();
             if (gainNode) gainNode.disconnect();
@@ -186,45 +244,57 @@
         }
     }
 
-    // === 新增：每秒捕捉 60 次音量大小，動態更新 CSS 外觀 ===
-    function updateVolumeAnimation() {
+    // === 核心繪圖邏輯：完全還原參考圖中圍繞圓形的噴發頻譜波浪 ===
+    function drawCircularSpectrum() {
         if (!isMicOn || !analyserNode) return;
 
         const bufferLength = analyserNode.frequencyBinCount;
         const dataArray = new Uint8Array(bufferLength);
         
-        // 抓取當下的時間網域音訊數據（波形）
-        analyserNode.getByteTimeDomainData(dataArray);
+        // 抓取當下的頻率（高低音）數據
+        analyserNode.getByteFrequencyData(dataArray);
 
-        // 計算音訊的 RMS (均方根值) 來代表即時音量大小
-        let sumSqr = 0;
+        // 每影格清空畫布
+        canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const baseRadius = 52; // 線條噴發的基礎圓形內圈半徑（剛好貼在100px的按鈕外圍）
+
+        canvasCtx.beginPath();
+        canvasCtx.strokeStyle = '#ff3b30'; // 鋸齒頻譜線條顏色
+        canvasCtx.lineWidth = 2.5;         // 線條粗細
+        canvasCtx.lineJoin = 'round';
+
+        // 將 360 度圓周分割，循環繪製每個頻率對應的鋸齒突起
         for (let i = 0; i < bufferLength; i++) {
-            let normalized = (dataArray[i] - 128) / 128; // 轉換為 -1 到 1 的區間
-            sumSqr += normalized * normalized;
-        }
-        let rms = Math.sqrt(sumSqr / bufferLength);
+            // 對頻率強度進行等比例縮放算出力道大小
+            const value = dataArray[i];
+            const percent = value / 255;
+            const spikeHeight = percent * 25; // 限制鋸齒最大向外噴發 25 像素
 
-        // 將音量大小等比例放大成視覺參數 (rms 範圍一般在 0 到 0.5 之間)
-        let volumeLevel = Math.min(rms * 50, 15); // 控制最大發光強度與縮放幅度
+            // 計算出目前這根鋸齒在圓形外圈的角度 (360度環繞)
+            const angle = (i / bufferLength) * Math.PI * 2;
+            
+            // 基礎半徑加上噴發高度
+            const currentRadius = baseRadius + spikeHeight;
 
-        const btn = document.getElementById('mic-toggle-btn');
-        if (btn) {
-            if (volumeLevel > 0.5) {
-                // 有聲音時：音量越大，紅色發光圈範圍越大、按鈕微幅充氣變大
-                let shadowRadius = 15 + (volumeLevel * 4); // 基礎 15px，隨音量變大
-                let scaleSize = 1.0 + (volumeLevel * 0.015); // 隨音量變大 1.01 ~ 1.1 倍
-                
-                btn.style.boxShadow = `0 0 ${shadowRadius}px rgba(255, 59, 48, 0.8)`;
-                btn.style.transform = `scale(${scaleSize})`;
+            // 三角函數算出畫布上的 XY 座標點
+            const x = centerX + Math.cos(angle) * currentRadius;
+            const y = centerY + Math.sin(angle) * currentRadius;
+
+            if (i === 0) {
+                canvasCtx.moveTo(x, y);
             } else {
-                // 完全沒聲音時恢復靜態紅色發光
-                btn.style.boxShadow = '0 0 15px rgba(255, 59, 48, 0.3)';
-                btn.style.transform = 'scale(1)';
+                canvasCtx.lineTo(x, y);
             }
         }
+        
+        canvasCtx.closePath(); // 封閉圓形線條
+        canvasCtx.stroke();
 
-        // 持續循環捕捉
-        animationFrameId = requestAnimationFrame(updateVolumeAnimation);
+        // 循環更新動畫
+        animationFrameId = requestAnimationFrame(drawCircularSpectrum);
     }
 
     function adjustMicVolume(amount) {
@@ -245,8 +315,3 @@
         const status = document.getElementById('status-display');
         const micState = isMicOn ? "擴音中" : "已關閉";
         const volState = Math.round(currentMicVolume * 100);
-        status.innerText = `麥克風：${micState}\n麥克風收音：${volState}%`;
-    }
-</script>
-</body>
-</html>
